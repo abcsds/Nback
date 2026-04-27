@@ -1,0 +1,13 @@
+letter,target
+A,false
+D,false
+G,false
+C,false
+G,false
+C,false
+C,true
+G,true
+D,false
+C,true
+A,false
+A,false
