@@ -251,27 +251,19 @@ def _block_timeline_figure(block: dict):
     trials = block["trials"]
     if not trials:
         return None
-    rts = [t["rt"] if np.isfinite(t["rt"]) else 0 for t in trials]
-    src = ColumnDataSource(dict(
-        x=[t["trial_idx"] for t in trials],
-        y=rts,
-        letter=[t["letter"] for t in trials],
-        outcome=[t["outcome"] for t in trials],
-        outcome_label=[OUTCOME_LABEL[t["outcome"]] for t in trials],
-        target=["yes" if t["target"] else "no" for t in trials],
-        rt_str=[f"{t['rt']:.3f} s" if np.isfinite(t["rt"]) else "(no press)" for t in trials],
-        colour=[OUTCOME_COLOURS[t["outcome"]] for t in trials],
-    ))
 
     finite_rts = [t["rt"] for t in trials if np.isfinite(t["rt"])]
     y_top = max(finite_rts) * 1.15 if finite_rts else 1.5
+    # Extend the axis a touch below zero so no-press markers (misses + CRs)
+    # rendered at y=0 aren't clipped by the bottom edge.
+    y_floor = -y_top * 0.06
 
     fig = figure(
         height=240,
         sizing_mode="stretch_width",
         x_axis_label="Trial #",
         y_axis_label="Response time (s)",
-        y_range=(0, y_top),
+        y_range=(y_floor, y_top),
         toolbar_location="above",
         tools="pan,wheel_zoom,box_zoom,reset,save",
     )
@@ -287,28 +279,38 @@ def _block_timeline_figure(block: dict):
     fig.axis.axis_label_text_color = "#7f8c8d"
     fig.axis.major_label_text_color = "#7f8c8d"
 
-    # Faint vertical bands at target trial indices for orientation.
-    for t in trials:
-        if t["target"]:
-            band = Span(location=t["trial_idx"], dimension="height",
-                        line_color="#fdf2e3", line_width=18)
-            fig.add_layout(band)
+    # Soft underlay rectangles at target columns for orientation. Use a
+    # vbar glyph drawn before the outcome scatters so it sits *below*
+    # them in z-order — Span/BoxAnnotation default to the annotation
+    # layer and would obscure any glyph on a target trial.
+    target_xs = [t["trial_idx"] for t in trials if t["target"]]
+    if target_xs:
+        fig.vbar(
+            x=target_xs, top=y_top, bottom=y_floor,
+            width=0.6, fill_color="#fdf2e3", fill_alpha=0.7,
+            line_color=None,
+        )
 
-    # Per-outcome glyphs so each kind has its own marker shape (legend).
+    # Per-outcome scatter glyphs, each with its own marker shape so the
+    # legend can toggle hits / misses / FAs / CRs independently.
     for outcome, marker in OUTCOME_MARKER.items():
-        view_data = {k: [] for k in src.data}
-        for i, oc in enumerate(src.data["outcome"]):
-            if oc != outcome:
-                continue
-            for k in src.data:
-                view_data[k].append(src.data[k][i])
-        if not view_data["x"]:
+        outcome_trials = [t for t in trials if t["outcome"] == outcome]
+        if not outcome_trials:
             continue
-        sub = ColumnDataSource(view_data)
+        sub = ColumnDataSource(dict(
+            x=[t["trial_idx"] for t in outcome_trials],
+            y=[t["rt"] if np.isfinite(t["rt"]) else 0 for t in outcome_trials],
+            letter=[t["letter"] for t in outcome_trials],
+            outcome_label=[OUTCOME_LABEL[outcome]] * len(outcome_trials),
+            target=["yes" if t["target"] else "no" for t in outcome_trials],
+            rt_str=[(f"{t['rt']:.3f} s" if np.isfinite(t["rt"]) else "(no press)")
+                    for t in outcome_trials],
+        ))
+        colour = OUTCOME_COLOURS[outcome]
         fig.scatter(
             x="x", y="y", source=sub,
-            marker=marker, size=10,
-            color="colour", alpha=0.9,
+            marker=marker, size=12,
+            fill_color=colour, line_color=colour, line_width=2, alpha=0.95,
             legend_label=OUTCOME_LABEL[outcome],
         )
 
