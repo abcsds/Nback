@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>N-back participant reports</title>
+<style>
+:root {
+  --ink: #2c3e50;
+  --muted: #7f8c8d;
+  --line: #ecf0f1;
+  --card: #ffffff;
+  --bg: #fafbfc;
+  --accent: #3498db;
+  --warn: #e74c3c;
+  --pass: #27ae60;
+  --fail: #e74c3c;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.5;
+}
+.wrap { max-width: 1200px; margin: 0 auto; padding: 1.5em 1em 4em; }
+h1 { margin: 0 0 0.2em; font-weight: 600; letter-spacing: -0.01em; }
+h2 { margin: 1.6em 0 0.6em; font-weight: 600; letter-spacing: -0.005em; }
+h3 { margin: 0 0 0.5em; font-weight: 600; }
+.meta {
+  color: var(--muted); font-size: 0.9em; margin: 0 0 1.5em;
+}
+.kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6em 1.2em;
+  margin: 0.8em 0 1.2em;
+}
+.kv > div { font-size: 0.9em; }
+.kv .label { display: block; color: var(--muted); font-size: 0.78em;
+             text-transform: uppercase; letter-spacing: 0.06em; }
+.kv .value { font-weight: 600; font-size: 1.05em; color: var(--ink); }
+.level-strip {
+  display: flex; gap: 0.6em; flex-wrap: wrap; margin: 0.8em 0 1.6em;
+}
+.level-chip {
+  flex: 1 1 130px; min-width: 130px;
+  padding: 0.6em 0.8em; border-radius: 8px;
+  background: var(--card); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.level-chip-n { font-weight: 700; font-size: 1.0em; }
+.level-chip-status { font-size: 0.78em; text-transform: uppercase;
+                     letter-spacing: 0.06em; color: var(--muted); }
+.level-chip-detail { font-size: 0.8em; color: var(--muted); }
+.level-chip-pass { border-color: #aedeb6; background: #f1faf3; }
+.level-chip-pass .level-chip-status { color: var(--pass); }
+.level-chip-fail { border-color: #f1b0b1; background: #fdf3f3; }
+.level-chip-fail .level-chip-status { color: var(--fail); }
+.level-chip-empty { opacity: 0.5; }
+.summary {
+  display: grid; grid-template-columns: 1fr 2fr; gap: 1.5em; align-items: start;
+}
+@media (max-width: 760px) { .summary { grid-template-columns: 1fr; } }
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 10px; padding: 1.1em 1.2em;
+}
+.card.tight { padding: 0.8em 0.9em; }
+.block-grid {
+  display: grid; grid-template-columns: minmax(280px, 1fr) minmax(0, 2fr);
+  gap: 1em; align-items: start;
+}
+@media (max-width: 760px) { .block-grid { grid-template-columns: 1fr; } }
+.block-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.8em;
+  margin-bottom: 0.3em;
+}
+.block-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600; font-size: 0.95em;
+  padding: 0.15em 0.55em; border-radius: 6px;
+  background: var(--bg);
+}
+.block-head .pass-pill, .block-head .fail-pill {
+  font-size: 0.72em; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 0.2em 0.55em; border-radius: 999px;
+}
+.pass-pill { background: #e9f7ef; color: var(--pass); }
+.fail-pill { background: #fbe9e7; color: var(--fail); }
+.block-stats {
+  font-size: 0.85em; color: var(--muted); display: flex; gap: 0.8em;
+  flex-wrap: wrap;
+}
+.block-stats b { color: var(--ink); }
+.confusion-row { display: flex; align-items: center; gap: 1.2em; }
+table.report {
+  border-collapse: collapse; width: 100%; font-size: 0.92em;
+}
+table.report th, table.report td {
+  padding: 0.45em 0.7em; border-bottom: 1px solid var(--line); text-align: left;
+}
+table.report th {
+  background: var(--bg); color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.75em;
+}
+table.report tbody tr:hover { background: var(--bg); }
+table.report .num { text-align: right; font-variant-numeric: tabular-nums; }
+.legend {
+  font-size: 0.85em; color: var(--muted); margin: 0.4em 0 0.8em;
+  display: flex; flex-wrap: wrap; gap: 0.8em;
+}
+.legend .swatch {
+  display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+  vertical-align: middle; margin-right: 4px;
+}
+.back-link { font-size: 0.9em; }
+.back-link a { color: var(--accent); text-decoration: none; }
+.back-link a:hover { text-decoration: underline; }
+hr { border: none; border-top: 1px solid var(--line); margin: 2em 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>N-back participant reports</h1>
+  <p class="meta">5 run(s) &middot; <a href="report.html" style="color:var(--accent)">prerandomization report &rarr;</a></p>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table class="report">
+      <thead><tr>
+        <th>Participant</th><th>Session</th><th>Date</th>
+        <th class="num">Duration</th><th>Max N reached</th>
+        <th class="num">Blocks ran</th><th></th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><a href="reports/pilot_NBack_2026-05-04_14h11.06.050.html" style="color:var(--accent);text-decoration:none">pilot</a></td>
+          <td>001</td>
+          <td>2026-05-04_14h11.11.287</td>
+          <td class="num">13m 51s</td>
+          <td><span style="color:#fc8d62;font-weight:700">2-back</span></td>
+          <td class="num">4</td>
+          <td><a href="reports/pilot_NBack_2026-05-04_14h11.06.050.html" style="color:var(--accent);text-decoration:none">open &rarr;</a></td>
+        </tr>
+        
+        <tr>
+          <td><a href="reports/pilot_NBack_2026-05-04_13h52.42.908.html" style="color:var(--accent);text-decoration:none">pilot</a></td>
+          <td>001</td>
+          <td>2026-05-04_13h52.46.902</td>
+          <td class="num">10m 44s</td>
+          <td><span style="color:#66c2a5;font-weight:700">1-back</span></td>
+          <td class="num">1</td>
+          <td><a href="reports/pilot_NBack_2026-05-04_13h52.42.908.html" style="color:var(--accent);text-decoration:none">open &rarr;</a></td>
+        </tr>
+        
+        <tr>
+          <td><a href="reports/pilot_NBack_2026-05-04_10h49.29.071.html" style="color:var(--accent);text-decoration:none">pilot</a></td>
+          <td>001</td>
+          <td>2026-05-04_10h49.37.874</td>
+          <td class="num">2m 41s</td>
+          <td><span style="color:#fc8d62;font-weight:700">2-back</span></td>
+          <td class="num">2</td>
+          <td><a href="reports/pilot_NBack_2026-05-04_10h49.29.071.html" style="color:var(--accent);text-decoration:none">open &rarr;</a></td>
+        </tr>
+        
+        <tr>
+          <td><a href="reports/pilot_NBack_2026-04-29_14h42.17.078.html" style="color:var(--accent);text-decoration:none">pilot</a></td>
+          <td>001</td>
+          <td>2026-04-29_14h42.21.858</td>
+          <td class="num">0m 32s</td>
+          <td><span style="color:#66c2a5;font-weight:700">1-back</span></td>
+          <td class="num">1</td>
+          <td><a href="reports/pilot_NBack_2026-04-29_14h42.17.078.html" style="color:var(--accent);text-decoration:none">open &rarr;</a></td>
+        </tr>
+        
+        <tr>
+          <td><a href="reports/pilot_NBack_2026-04-29_14h19.47.548.html" style="color:var(--accent);text-decoration:none">pilot</a></td>
+          <td>001</td>
+          <td>2026-04-29_14h19.52.539</td>
+          <td class="num">0m 48s</td>
+          <td><span style="color:#66c2a5;font-weight:700">1-back</span></td>
+          <td class="num">1</td>
+          <td><a href="reports/pilot_NBack_2026-04-29_14h19.47.548.html" style="color:var(--accent);text-decoration:none">open &rarr;</a></td>
+        </tr>
+        </tbody>
+    </table>
+  </div>
+</div>
+<footer style="text-align:center;color:var(--muted);font-size:0.8em;padding:2em 1em">
+Index updated 2026-05-04T14:55:45+02:00
+</footer>
+</body>
+</html>

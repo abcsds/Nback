@@ -22,12 +22,12 @@ from pathlib import Path
 ALL_LETTERS = [c for c in string.ascii_uppercase if c != "N"]  # N omitted: confused testers
 TRAINING_LETTERS = list("ABCDEFGH")  # smaller alphabet so training is easier
 
-PRESENTATION_DURATION = 2.0  # seconds the letter is on screen
-ITI = 0.5                    # inter-trial interval in seconds
-TRIAL_DURATION = PRESENTATION_DURATION + ITI  # 2.5 s
+PRESENTATION_DURATION = 1.2  # seconds the letter is on screen
+ITI = 0.6                    # inter-trial interval in seconds (fix routine: 0.3 s cross + 0.3 s blank)
+TRIAL_DURATION = PRESENTATION_DURATION + ITI  # 1.8 s
 
-BLOCK_DURATION = 90.0      # seconds per main block
-TRAINING_DURATION = 30.0   # seconds per training block
+BLOCK_DURATION = 64.8      # seconds per main block (36 trials × 1.8 s)
+TRAINING_DURATION = 21.6   # seconds per training block (12 trials × 1.8 s)
 
 TARGET_RATIO = 0.25  # exactly 25% of trials are targets
 
@@ -35,7 +35,17 @@ N_LEVELS = [1, 2, 3, 4, 5]
 LISTS_PER_LEVEL = 10
 TRAINING_LEVELS = [1, 2, 3]
 
+INSTRUCTIONS_DURATION = 5 * 60  # seconds reserved for the instructions screen
+INTER_BLOCK_BREAK = 60          # 1-min break between every pair of consecutive lists
+
 DEFAULT_SEED = 20260427  # change this to regenerate; LOG.md records each new seed
+
+N_PARTICIPANTS = 1000        # 3-digit codes 000..999
+# MAX_BLOCKS == LISTS_PER_LEVEL is load-bearing: each block consumes one
+# list-letter per N, and the per-N permutation is exactly LISTS_PER_LEVEL
+# letters long, so this guarantees no list-letter is reused for the same N
+# within a participant even in the no-failure worst case.
+MAX_BLOCKS = LISTS_PER_LEVEL  # 10
 
 # --- Helpers ----------------------------------------------------------------
 
@@ -58,16 +68,34 @@ def n_targets_for(length: int) -> int:
     return n
 
 
+def _sample_non_adjacent(rng: random.Random, low: int, high: int, k: int) -> list[int]:
+    """Sample k distinct integers from [low, high) with no two consecutive.
+
+    Bijection: any k-subset of {0..m-k} maps to a non-adjacent k-subset of
+    {0..m-1} by adding the rank-index to each sorted pick. Using a uniform
+    sample on the smaller range gives a uniform sample on the constrained
+    one. (m = high - low.)
+    """
+    m = high - low
+    max_k = (m + 1) // 2
+    assert k <= max_k, (
+        f"cannot place {k} non-adjacent targets in {m} slots (max {max_k})"
+    )
+    raw = sorted(rng.sample(range(m - k + 1), k))
+    return [low + r + i for i, r in enumerate(raw)]
+
+
 def generate_sequence(rng: random.Random, n_back: int, length: int, letters: list[str]):
     """Build a sequence with exactly n_targets matches at distance n_back.
 
-    Targets are placed first by choosing positions in [n_back, length); each
-    such position copies the letter from n_back trials earlier. Non-target
+    Targets are placed first by choosing positions in [n_back, length) with
+    no two consecutive (to avoid attentional-blink confounds); each target
+    position copies the letter from n_back trials earlier. Non-target
     positions pick a letter different from the one n_back back, so they
     cannot accidentally form a target.
     """
     n_t = n_targets_for(length)
-    target_positions = set(rng.sample(range(n_back, length), n_t))
+    target_positions = set(_sample_non_adjacent(rng, n_back, length, n_t))
 
     seq: list[str] = []
     targets: list[bool] = []
@@ -102,6 +130,10 @@ def verify(seq, targets, n_back: int, expected_length: int, expected_targets: in
         assert actual_match == targets[i], (
             f"position {i}: target flag {targets[i]} disagrees with letter match {actual_match}"
         )
+    for i in range(1, expected_length):
+        assert not (targets[i] and targets[i - 1]), (
+            f"adjacent targets at positions {i - 1} and {i} (attentional-blink risk)"
+        )
 
 
 def write_csv(path: Path, seq, targets):
@@ -110,6 +142,54 @@ def write_csv(path: Path, seq, targets):
         w.writerow(["letter", "target"])
         for letter, is_target in zip(seq, targets):
             w.writerow([letter, "true" if is_target else "false"])
+
+
+def generate_schedule(rng, n_levels, max_blocks, lists_per_level):
+    """One participant's schedule: max_blocks * len(n_levels) rows.
+
+    For each N, the list-letters are a single permutation of [a..j] used
+    without replacement across max_blocks blocks. Rows are emitted
+    block-major (block 1's N=1..5 first, then block 2, ...).
+    """
+    letters = [chr(ord("a") + i) for i in range(lists_per_level)]
+    perms = {n: rng.sample(letters, lists_per_level) for n in n_levels}
+    rows = []
+    for block in range(1, max_blocks + 1):
+        for n in n_levels:
+            letter = perms[n][block - 1]
+            rows.append((block, n, letter, f"lists/{n}{letter}.csv"))
+    return rows
+
+
+def verify_schedule(rows, n_levels, max_blocks, lists_per_level):
+    assert len(rows) == max_blocks * len(n_levels), (
+        f"schedule has {len(rows)} rows, expected {max_blocks * len(n_levels)}"
+    )
+    # Block-major ordering is load-bearing: the experiment consumes rows in
+    # order with no re-sort, so block_i / N=1..k must precede block_{i+1}.
+    expected_order = sorted(rows, key=lambda r: (r[0], r[1]))
+    assert rows == expected_order, "rows must be ordered (block, N) ascending"
+    expected_letters = {chr(ord("a") + i) for i in range(lists_per_level)}
+    by_n = {n: [] for n in n_levels}
+    for block, n, letter, conds in rows:
+        assert 1 <= block <= max_blocks
+        assert n in n_levels
+        assert conds == f"lists/{n}{letter}.csv"
+        by_n[n].append(letter)
+    for n in n_levels:
+        assert set(by_n[n]) == expected_letters, (
+            f"N={n}: letters {expected_letters - set(by_n[n])} missing"
+        )
+        assert len(by_n[n]) == lists_per_level, (
+            f"N={n}: list-letter reused"
+        )
+
+
+def write_schedule(path, rows):
+    with path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["block", "N", "list_letter", "condsFile"])
+        w.writerows(rows)
 
 
 def read_last_seed(log_path: Path) -> int | None:
@@ -175,6 +255,76 @@ def _svg_bars(items, max_val=None, label_w: int = 110, bar_max: int = 320,
     return "\n".join(parts)
 
 
+def _format_duration(seconds: float) -> str:
+    s = int(round(seconds))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {sec:02d}s" if sec else f"{h}h {m:02d}m"
+    return f"{m}m {sec:02d}s" if sec else f"{m}m"
+
+
+def _task_time(k: int, max_n: int) -> float | None:
+    """Seconds for training + main blocks + inter-list breaks (no instructions).
+
+    Topping out at `max_n` < 5 means the participant attempted (and failed)
+    N=max_n+1, which counts as one extra main list (and one extra training
+    if max_n+1 <= 3). After that failure cap drops to max_n; subsequent
+    blocks only run levels 1..max_n.
+
+    Topping out at max_n=1 forces the experiment to end (cap=1 < 2), so it's
+    only reachable with K=1; for K>1 with max_n=1 we return None.
+    """
+    if max_n == 1 and k > 1:
+        return None  # unreachable: failing N=2 ends the experiment immediately
+    if max_n < max(N_LEVELS):
+        # +1 failed attempt at N=max_n+1; trainings up to that level if <=3.
+        train_blocks = min(max_n + 1, len(TRAINING_LEVELS))
+        main_blocks = max_n * k + 1
+    else:
+        # Reached the ceiling without failing: K full sweeps, no extra attempt.
+        train_blocks = len(TRAINING_LEVELS)
+        main_blocks = max_n * k
+    total_blocks = train_blocks + main_blocks
+    breaks = max(total_blocks - 1, 0)
+    return (
+        train_blocks * TRAINING_DURATION
+        + main_blocks * BLOCK_DURATION
+        + breaks * INTER_BLOCK_BREAK
+    )
+
+
+def _schedule_table_html() -> str:
+    max_level = max(N_LEVELS)
+    head = (
+        "<thead>"
+        '<tr>'
+        '<th rowspan="2">Lists per N-back level (K)</th>'
+        '<th rowspan="2">Instructions</th>'
+        f'<th colspan="{len(N_LEVELS)}">Task time if participant tops out at N-back =</th>'
+        "</tr>"
+        "<tr>"
+        + "".join(
+            f'<th>{n}{" (max)" if n == max_level else ""}</th>' for n in N_LEVELS
+        )
+        + "</tr></thead>"
+    )
+    instr = _format_duration(INSTRUCTIONS_DURATION)
+    body_rows = []
+    for k in range(1, LISTS_PER_LEVEL + 1):
+        cells = [f"<td>{k}</td>", f"<td>{instr}</td>"]
+        for max_n in N_LEVELS:
+            cls = ' class="max-col"' if max_n == max_level else ""
+            seconds = _task_time(k, max_n)
+            cell = _format_duration(seconds) if seconds is not None else "&mdash;"
+            cells.append(f"<td{cls}>{cell}</td>")
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
+    return (
+        '<table class="schedule">'
+        f"{head}<tbody>{''.join(body_rows)}</tbody></table>"
+    )
+
+
 def render_html_report(report_path: Path, runs: dict, seed: int) -> None:
     """Write a single-page HTML report with one tab per N-back level.
 
@@ -214,6 +364,15 @@ def render_html_report(report_path: Path, runs: dict, seed: int) -> None:
     .list-name { font-weight: 600;
                  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .list-stats { color: #7f8c8d; font-size: 0.85em; }
+    .schedule { border-collapse: collapse; margin: 0.5em 0 1em;
+                font-family: -apple-system, sans-serif; font-size: 13px; }
+    .schedule th, .schedule td { padding: 6px 14px;
+                                  border-bottom: 1px solid #ecf0f1; text-align: right; }
+    .schedule th:first-child, .schedule td:first-child { text-align: left; }
+    .schedule th { background: #ecf0f1; font-weight: 600; }
+    .schedule tbody tr:hover { background: #f4f6f7; }
+    .schedule .max-col { background: #fdf2e3; }
+    .schedule-note { color: #7f8c8d; font-size: 0.85em; margin: 0 0 1.5em; }
     """
 
     js = """
@@ -329,6 +488,33 @@ def render_html_report(report_path: Path, runs: dict, seed: int) -> None:
 <p class="meta">Generated {timestamp} &middot; seed: {seed} &middot;
 {n_main} main lists &middot; {n_train} training lists</p>
 {legend_html}
+<h2>Experiment schedule</h2>
+<p class="schedule-note">A participant who fails &gt;50% of a level does not
+proceed to the next, so the task time depends on the highest N-back level they
+complete. The rightmost column ({max(N_LEVELS)}-back) is the upper bound; in
+practice most participants top out around 4-back. Topping out at <em>X</em>
+&lt; 5 means the participant attempted N=<em>X</em>+1 and failed it, so each
+non-max cell includes one extra main list ({BLOCK_DURATION:g} s) plus its
+training if <em>X</em>+1 &le; 3. The &ldquo;1-back&rdquo; column has only the
+<em>K</em>=1 cell because failing N=2 drops the cap below 2 and ends the
+experiment immediately, so <em>K</em>&gt;1 with max-N=1 is unreachable
+(&mdash;). The &ldquo;Instructions&rdquo; column is fixed
+({int(INSTRUCTIONS_DURATION / 60)} min); the per-level columns cover, for each
+level reached (and the failed attempt where applicable), the corresponding
+training list ({TRAINING_DURATION:g} s; only 1-, 2-, and 3-back have training),
+the main lists ({BLOCK_DURATION:g} s each), and a {int(INTER_BLOCK_BREAK)} s
+break between every consecutive list. Add the &ldquo;Instructions&rdquo;
+column to a per-level cell to get the wall-clock total.</p>
+{_schedule_table_html()}
+<h3>Participant schedules</h3>
+<p><code>prerandomize.py</code> also writes {N_PARTICIPANTS} per-participant
+schedules (<code>schedules/000.csv</code> &hellip; <code>schedules/{N_PARTICIPANTS - 1:03d}.csv</code>),
+one for each possible 3-digit participant code. Each schedule has
+{MAX_BLOCKS * len(N_LEVELS)} rows = {MAX_BLOCKS} blocks &times; {len(N_LEVELS)} N-levels,
+with the {LISTS_PER_LEVEL} list-letters per N-level used in a permuted order.
+The experiment loads <code>schedules/{{participant}}.csv</code> at runtime and
+skips rows where the cap has dropped below the row's N or where the row's
+block exceeds the experimenter-set <code>nBlocks</code>.</p>
 <div class="tab-bar">{''.join(tab_buttons)}</div>
 {''.join(tab_panels)}
 <script>{js}</script>
@@ -367,10 +553,13 @@ def main() -> None:
                         help="seed log file (default: LOG.md)")
     parser.add_argument("--report", type=Path, default=Path("docs/report.html"),
                         help="HTML report file (default: docs/report.html)")
+    parser.add_argument("--schedules", type=Path, default=Path("schedules"),
+                        help="output directory for participant schedules (default: schedules)")
     args = parser.parse_args()
 
     args.output.mkdir(parents=True, exist_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
+    args.schedules.mkdir(parents=True, exist_ok=True)
 
     block_length = n_stimuli(BLOCK_DURATION)
     block_targets = n_targets_for(block_length)
@@ -416,6 +605,14 @@ def main() -> None:
         f"training lists vary in length: {sorted(set(train_lengths_seen))}"
     )
 
+    # Per-participant schedules (3-digit IDs 000..999)
+    for pid in range(N_PARTICIPANTS):
+        sub_seed = master_rng.getrandbits(64)
+        sub_rng = random.Random(sub_seed)
+        rows = generate_schedule(sub_rng, N_LEVELS, MAX_BLOCKS, LISTS_PER_LEVEL)
+        verify_schedule(rows, N_LEVELS, MAX_BLOCKS, LISTS_PER_LEVEL)
+        write_schedule(args.schedules / f"{pid:03d}.csv", rows)
+
     render_html_report(args.report, runs, args.seed)
 
     last_seed = read_last_seed(args.log)
@@ -432,6 +629,7 @@ def main() -> None:
         f"({train_length} trials, {train_targets} targets each) to {args.output}/"
     )
     print(f"Wrote report to {args.report}")
+    print(f"Wrote {N_PARTICIPANTS} participant schedules to {args.schedules}/")
     print(log_msg)
 
 

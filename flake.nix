@@ -11,11 +11,21 @@
       apps = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          reportEnv = pkgs.python3.withPackages (ps: with ps; [
+            bokeh scipy numpy pandas
+          ]);
           prerandomize = pkgs.writeShellApplication {
             name = "prerandomize";
             runtimeInputs = [ pkgs.python3 ];
             text = ''
               exec python3 ${./prerandomize.py} "$@"
+            '';
+          };
+          report = pkgs.writeShellApplication {
+            name = "report";
+            runtimeInputs = [ reportEnv ];
+            text = ''
+              exec python3 ${./report.py} "$@"
             '';
           };
         in {
@@ -24,13 +34,23 @@
             program = "${prerandomize}/bin/prerandomize";
             meta.description = "Generate the N-back letter lists into ./lists/";
           };
+          report = {
+            type = "app";
+            program = "${report}/bin/report";
+            meta.description = "Build per-participant HTML reports under docs/";
+          };
           default = self.apps.${system}.prerandomize;
         });
 
       devShells = forAllSystems (system:
-        let pkgs = nixpkgs.legacyPackages.${system}; in {
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          reportEnv = pkgs.python3.withPackages (ps: with ps; [
+            bokeh scipy numpy pandas
+          ]);
+        in {
           default = pkgs.mkShell {
-            packages = [ pkgs.python3 ];
+            packages = [ reportEnv ];
           };
         });
     };

@@ -1,4 +1,17 @@
-# Pre-randomization seed log
+# NBack project log
+
+## Decisions
+
+- 2026-05-04T14:59:57+02:00 — Report generation stays **manual**
+  (`nix run .#report` after each experiment). Considered hooking it
+  from PsychoPy's `End Experiment` block but rejected for now: the
+  bundled PsychoPy Python lacks bokeh/scipy/pandas (would have to
+  shell out to `nix run`), and `End Experiment` fires before
+  `thisExp.save()` so a hooked subprocess would race the CSV write.
+  Detachment + sleep is workable but adds fragility for marginal
+  benefit at pilot scale.
+
+## Pre-randomization seed log
 
 Each entry records a run of `prerandomize.py` whose seed differed
 from the previous run. This is the audit trail for reproducibility:
