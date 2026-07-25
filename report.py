@@ -41,6 +41,15 @@ DATA_DIR = Path("data")
 REPORTS_DIR = Path("docs/reports")
 INDEX_PATH = Path("docs/index.html")
 
+# Privacy-friendly analytics snippet injected into every generated page's <head>.
+# Plain (non-f) string so the JS braces are treated literally.
+PLAUSIBLE_SNIPPET = """<!-- Privacy-friendly analytics by Plausible -->
+<script async src="https://an.barcha.xyz/js/pa-e_xv6BCn2XAsrbE9OzRWc.js"></script>
+<script>
+  window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};
+  plausible.init()
+</script>"""
+
 N_LEVELS = [1, 2, 3, 4, 5]
 
 # Per-N colour palette (Set2-derived). Stable across all reports.
@@ -770,6 +779,7 @@ def render_report(run: dict, out_path: Path) -> None:
 <title>{html.escape(run['participant'])} — N-back report</title>
 {INLINE.render()}
 <style>{CSS}</style>
+{PLAUSIBLE_SNIPPET}
 </head>
 <body>
 {body}
@@ -817,6 +827,7 @@ def render_index(runs: list[dict], index_path: Path) -> None:
 <meta charset="utf-8">
 <title>N-back participant reports</title>
 <style>{CSS}</style>
+{PLAUSIBLE_SNIPPET}
 </head>
 <body>
 <div class="wrap">
